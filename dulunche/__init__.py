@@ -1,3 +1,4 @@
+import json
 import dulunche.check_env
 import asyncio
 import random
@@ -13,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dulunche.danmaku import Danmaku, DanmakuList
 from dulunche.biliapi import BiliLiveAPI
 from dulunche.dmc import DanmakuClient
-from dulunche.login import bzlogin
 
 class AutoDuLunChe():
     def __init__(self, 
@@ -38,26 +38,25 @@ class AutoDuLunChe():
         self.filter_self = filter_self
         self.kwargs = kwargs
 
-        while 1:
-            if isinstance(cookies, str):
-                cookies = cookielib.LWPCookieJar(filename=cookies)
-                cookies.load(ignore_discard=True)
-                cookies = requests.utils.dict_from_cookiejar(cookies)
-            self.cookies = cookies
-            self.bapi = BiliLiveAPI(cookies=self.cookies)
-            login_info = self.bapi.get_user_info(self.room_id)
-            if login_info['code'] != 0:
-                input('未登录，回车开始扫码登录:')
-                bzlogin(self.cookies)
+        if isinstance(cookies, str):
+            with open(cookies, encoding='utf8') as f:
+                cookies = json.load(f)
+                cookies = {it['name']:it['value'] for it in cookies['cookie_info']['cookies']}
+        self.cookies = cookies
+        self.bapi = BiliLiveAPI(cookies=self.cookies)
+
+        login_info = self.bapi.get_user_info(self.room_id)
+        if login_info['code'] != 0:
+            input('未登录，请使用biliuprs进行登录：https://github.com/biliup/biliup-rs')
+            exit(1)
+        else:
+            data = login_info['data']
+            self.up_medal = data['medal']['up_medal']['medal_name']
+            self.uname = data['info']['uname']
+            if data['medal']['is_weared']:
+                logging.info(f"正在使用账号 {data['info']['uname']} 独轮车，佩戴 {data['medal']['curr_weared']['medal_name']} {data['medal']['curr_weared']['level']}级 牌子.")
             else:
-                data = login_info['data']
-                self.up_medal = data['medal']['up_medal']['medal_name']
-                self.uname = data['info']['uname']
-                if data['medal']['is_weared']:
-                    logging.info(f"正在使用账号 {data['info']['uname']} 独轮车，佩戴 {data['medal']['curr_weared']['medal_name']} {data['medal']['curr_weared']['level']}级 牌子.")
-                else:
-                    logging.info(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
-                break
+                logging.info(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
         
         self.dmlist = DanmakuList(duration=self.check_length)
         self.total_cnt = 0

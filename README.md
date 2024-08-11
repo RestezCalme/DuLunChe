@@ -13,6 +13,9 @@ Python独轮车工具。
 - Python 3.7+
 - aiohttp, pillow, pyyaml, requests     
 
+**关于登录：**          
+请使用[biliuprs](https://github.com/biliup/biliup-rs?tab=readme-ov-file#windows-%E6%BC%94%E7%A4%BA)登录，并且使用相应标准的cookies文件。
+
 ## 使用
 本程序有两个不同的模式：
 - 全自动独轮车（啥都不用设置，打开就自动开车），启动时双击`main.py`打开，配置文件在`config.yml`里面调（大部分情况下不用改）。       

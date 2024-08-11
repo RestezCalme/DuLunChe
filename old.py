@@ -1,11 +1,8 @@
 import argparse
-import os
+import json
 import re
 import time
-import requests
-import http.cookiejar as cookielib
 from dulunche.biliapi import BiliLiveAPI
-from dulunche.login import bzlogin
 
 def read_text(fpath,mode):
     text = []
@@ -65,7 +62,7 @@ def get_mode(fpath):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cookies',type=str,default='./cookies.txt')
+    parser.add_argument('--cookies',type=str,default='./cookies.json')
     parser.add_argument('-r','--rid',type=str,default='23197314')
     parser.add_argument('-t','--txt',type=str,default='./text.txt')
     parser.add_argument('-i','--interval',type=float,default=10)
@@ -77,25 +74,21 @@ if __name__ == '__main__':
     mode = '独轮车' if args.mode == 'dulunche' else '说书'
     text = read_text(args.txt,mode=args.mode)
 
-    while 1:
-        if isinstance(args.cookies, str):
-            cookies = cookielib.LWPCookieJar(filename=args.cookies)
-            cookies.load(ignore_discard=True)
-            cookies = requests.utils.dict_from_cookiejar(cookies)
+    with open(args.cookies, encoding='utf8') as f:
+        cookies = json.load(f)
+        cookies = {it['name']:it['value'] for it in cookies['cookie_info']['cookies']}
+    bapi = BiliLiveAPI(cookies=cookies)
+    
+    login_info = bapi.get_user_info(args.rid)
+    if login_info['code'] != 0:
+        input('未登录，请使用biliuprs进行登录：https://github.com/biliup/biliup-rs')
+        exit(1)
+    else:
+        data = login_info['data']
+        if data['medal']['is_weared']:
+            print(f"正在使用账号 {data['info']['uname']} 独轮车，佩戴 {data['medal']['curr_weared']['medal_name']} {data['medal']['curr_weared']['level']}级 牌子.")
         else:
-            cookies = args.cookies
-        bapi = BiliLiveAPI(cookies=cookies)
-        login_info = bapi.get_user_info(args.rid)
-        if login_info['code'] != 0:
-            input('未登录，回车开始扫码登录:')
-            bzlogin(args.cookies)
-        else:
-            data = login_info['data']
-            if data['medal']['is_weared']:
-                print(f"正在使用账号 {data['info']['uname']} 独轮车，佩戴 {data['medal']['curr_weared']['medal_name']} {data['medal']['curr_weared']['level']}级 牌子.")
-            else:
-                print(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
-            break
+            print(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
     
     dm_cnt = 0
     kill_cnt = 0
