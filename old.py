@@ -63,7 +63,7 @@ def get_mode(fpath):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cookies',type=str,default='./cookies.json')
-    parser.add_argument('-r','--rid',type=str,default='23197314')
+    parser.add_argument('-r','--rid',type=str,default='14709735')
     parser.add_argument('-t','--txt',type=str,default='./text.txt')
     parser.add_argument('-i','--interval',type=float,default=10)
     parser.add_argument('--mode',choices=['auto','shuoshu','dulunche'],default='auto')
@@ -85,10 +85,19 @@ if __name__ == '__main__':
         exit(1)
     else:
         data = login_info['data']
-        if data['medal']['is_weared']:
-            print(f"正在使用账号 {data['info']['uname']} 独轮车，佩戴 {data['medal']['curr_weared']['medal_name']} {data['medal']['curr_weared']['level']}级 牌子.")
+        medal_info = data.get('medal', {})
+        if medal_info.get('is_weared'):
+            curr = medal_info.get('curr_weared_v2') or medal_info.get('curr_weared')
+            if curr:
+                medal_name = curr.get('medal_name') or curr.get('name', '')
+                level = curr.get('level', '')
+                print(f"正在使用账号 {data['info']['uname']} 独轮车，佩戴 {medal_name} {level}级 牌子.")
+            else:
+                print(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
         else:
             print(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
+
+
     
     dm_cnt = 0
     kill_cnt = 0
