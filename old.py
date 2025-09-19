@@ -2,7 +2,22 @@ import argparse
 import json
 import re
 import time
+import requests
 from dulunche.biliapi import BiliLiveAPI
+
+def get_live_status(room_id, cookies):
+    url = f"https://api.live.bilibili.com/room/v1/Room/get_info?room_id={room_id}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/122.0.0.0 Safari/537.36",
+        "Referer": f"https://live.bilibili.com/{room_id}",
+        "Origin":  "https://live.bilibili.com",
+    }
+    r = requests.get(url, headers=headers, cookies=cookies, timeout=10)
+    r.raise_for_status()
+    j = r.json()
+    return j["data"]["live_status"]
 
 def read_text(fpath,mode):
     text = []
@@ -78,8 +93,19 @@ if __name__ == '__main__':
         cookies = json.load(f)
         cookies = {it['name']:it['value'] for it in cookies['cookie_info']['cookies']}
     bapi = BiliLiveAPI(cookies=cookies)
-    
     login_info = bapi.get_user_info(args.rid)
+
+    print("等待直播间开播...")
+    while True:
+        try:
+            # ✅ 这里把 cookies 传进去
+            if get_live_status(args.rid, cookies) == 1:
+                print("直播已开播，开始发送弹幕")
+                break
+        except Exception as e:
+            print("获取房间状态失败：", e)
+        time.sleep(30)
+
     if login_info['code'] != 0:
         input('未登录，请使用biliuprs进行登录：https://github.com/biliup/biliup-rs')
         exit(1)
