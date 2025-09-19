@@ -3,6 +3,7 @@ import json
 import re
 import time
 import requests
+import logging
 from dulunche.biliapi import BiliLiveAPI
 
 def get_live_status(room_id, cookies):
@@ -75,6 +76,15 @@ def get_mode(fpath):
             mode = '独轮车'
     return mode 
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("danmu.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cookies',type=str,default='./cookies.json')
@@ -95,15 +105,15 @@ if __name__ == '__main__':
     bapi = BiliLiveAPI(cookies=cookies)
     login_info = bapi.get_user_info(args.rid)
 
-    print("等待直播间开播...")
+    logging.info("等待直播间开播...")
     while True:
         try:
             # ✅ 这里把 cookies 传进去
             if get_live_status(args.rid, cookies) == 1:
-                print("直播已开播，开始发送弹幕")
+                logging.info("直播已开播，开始发送弹幕")
                 break
         except Exception as e:
-            print("获取房间状态失败：", e)
+            logging.info("获取房间状态失败：", e)
         time.sleep(30)
 
     if login_info['code'] != 0:
@@ -117,66 +127,64 @@ if __name__ == '__main__':
             if curr:
                 medal_name = curr.get('medal_name') or curr.get('name', '')
                 level = curr.get('level', '')
-                print(f"正在使用账号 {data['info']['uname']} 独轮车，佩戴 {medal_name} {level}级 牌子.")
+                logging.info(f"正在使用账号 {data['info']['uname']} 独轮车，佩戴 {medal_name} {level}级 牌子.")
             else:
-                print(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
+                logging.info(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
         else:
-            print(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
+            logging.info(f"正在使用账号 {data['info']['uname']} 独轮车，未戴牌子.")
 
 
     
     dm_cnt = 0
     kill_cnt = 0
     
-    while 1:
+    while True:
+        # 每次循环先检测直播状态
         try:
-            if get_live_status(args.rid, cookies) != 1:
-                print("检测到直播已结束，停止发送弹幕。")
-                break
+            status = get_live_status(args.rid, cookies)
         except Exception as e:
-            print("获取房间状态失败：", e)
-            break
-        
-        if len(text) < 1:
-            print('No text, waiting...')
-            time.sleep(1)
-
-            mode = get_mode(args.txt)
-            new_text = read_text(args.txt,mode=mode)
-            if new_text != text:
-                text = new_text
-                print('refresh text.')
-                break
+            logging.error(f"获取直播状态失败: {e}")
+            time.sleep(30)
             continue
 
-        for word_cnt,txt in enumerate(text):
-            if txt.startswith('#') and not txt.startswith('##'):
-                txt = txt[1:]
-                mode = '表情独轮车'
-            
-            try:
-                rt = bapi.send_danmu(roomid=args.rid,msg=txt,emoticon=int(mode=='表情独轮车'))
-                if rt['msg'] == '':
-                    status = True
-                else:
-                    status = False
-                    msg = rt['msg']
-            except Exception as e:
-                print(e)
-                continue
-                
-            dm_cnt += 1
-            if status:
-                print(f'{mode} {word_cnt+1}/{len(text)}, total {dm_cnt:04d}: {txt}.')
-                time.sleep(args.interval)
-            else:
-                kill_cnt += 1
-                print(f'{mode} {word_cnt+1}/{len(text)} was killed ({msg}): {txt}.')
-                time.sleep(min(args.interval,5))
+        # 如果没开播 -> 等待直到开播
+        if status != 1:
+            logging.info("检测到直播未开播，进入等待...")
+            while True:
+                time.sleep(30)
+                try:
+                    status = get_live_status(args.rid, cookies)
+                    if status == 1:
+                        logging.info("检测到直播重新开播，继续发送弹幕。")
+                        break
+                except Exception as e:
+                    logging.error(f"获取直播状态失败: {e}")
+                    continue
 
-            mode = get_mode(args.txt)
-            new_text = read_text(args.txt,mode=mode)
-            if new_text != text:
-                text = new_text
-                print('Refresh text...')
-                break
+        # -------- 弹幕发送逻辑 --------
+        CHECK_EVERY = 5  # 每发送多少条检测一次直播状态，可自行调整
+        sent_since_check = 0
+        for word_cnt, txt in enumerate(text):
+            # 周期性检查直播状态
+            if CHECK_EVERY and sent_since_check >= CHECK_EVERY:
+                try:
+                    if get_live_status(args.rid, cookies) != 1:
+                        logging.warning("周期性检查：检测到直播已下播，中断当前弹幕循环。")
+                        break
+                except Exception as e:
+                    logging.error("周期性检查直播状态失败: %s", e)
+                    # 不中断，继续发送
+                sent_since_check = 0
+
+            try:
+                bapi.send_danmu(args.rid, txt)
+                dm_cnt += 1
+                sent_since_check += 1
+                logging.info(f"已发送弹幕 {dm_cnt} 条: {txt}")
+                time.sleep(args.interval)
+            except Exception as e:
+                logging.error(f"发送失败: {e}")
+                kill_cnt += 1
+                if kill_cnt > 3:
+                    logging.critical("连续失败过多，停止脚本。")
+                    exit(1)

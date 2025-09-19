@@ -1,5 +1,4 @@
 /.vscode
-
 /cookies**
 /test**
 **.exe
@@ -7,3 +6,4 @@
 **.mp4
 **.png
 **.json
+*.log
