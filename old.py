@@ -129,6 +129,14 @@ if __name__ == '__main__':
     kill_cnt = 0
     
     while 1:
+        try:
+            if get_live_status(args.rid, cookies) != 1:
+                print("检测到直播已结束，停止发送弹幕。")
+                break
+        except Exception as e:
+            print("获取房间状态失败：", e)
+            break
+        
         if len(text) < 1:
             print('No text, waiting...')
             time.sleep(1)
