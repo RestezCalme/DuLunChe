@@ -4,6 +4,8 @@ import re
 import time
 import requests
 import logging
+from playwright.sync_api import sync_playwright
+import threading
 from dulunche.biliapi import BiliLiveAPI
 
 def get_live_status(room_id, cookies):
@@ -19,6 +21,64 @@ def get_live_status(room_id, cookies):
     r.raise_for_status()
     j = r.json()
     return j["data"]["live_status"]
+
+def start_live_watch(room_id, cookies):
+    """
+    开播后启动无头浏览器观看，直到下播。
+    期间每分钟统计一次观看时长，但日志每10分钟输出一次，
+    并在下播时输出最终总结。
+    """
+    def run():
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+
+            # 导入 cookies
+            cookie_list = []
+            for k, v in cookies.items():
+                cookie_list.append({
+                    "name": k,
+                    "value": v,
+                    "domain": ".bilibili.com",
+                    "path": "/",
+                    "httpOnly": False,
+                    "secure": True,
+                    "sameSite": "Lax"
+                })
+            context.add_cookies(cookie_list)
+
+            page = context.new_page()
+            page.goto(f"https://live.bilibili.com/{room_id}")
+
+            watch_minutes = 0
+            try:
+                while True:
+                    time.sleep(60)   # 每分钟循环一次
+                    watch_minutes += 1
+                    intimacy = min((watch_minutes // 5) * 6, 30)  # 每5分钟+6, 上限30
+
+                    # ✅ 日志每10分钟输出一次
+                    if watch_minutes % 10 == 0:
+                        logging.info(f"已观看 {watch_minutes} 分钟，亲密度≈ {intimacy}")
+
+                    # 检查是否下播
+                    try:
+                        status = get_live_status(room_id, cookies)
+                        if status != 1:
+                            # 下播时输出最终总结
+                            final_intimacy = min((watch_minutes // 5) * 6, 30)
+                            logging.info(f"检测到下播，结束观看任务。"
+                                         f"总共观看 {watch_minutes} 分钟，亲密度≈ {final_intimacy}")
+                            break
+                    except Exception as e:
+                        logging.error(f"检测下播状态失败: {e}")
+                        continue
+            finally:
+                browser.close()
+
+    # 后台线程运行，不阻塞主逻辑
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
 
 def read_text(fpath,mode):
     text = []
@@ -111,6 +171,7 @@ if __name__ == '__main__':
             # ✅ 这里把 cookies 传进去
             if get_live_status(args.rid, cookies) == 1:
                 logging.info("直播已开播，开始发送弹幕")
+                start_live_watch(args.rid, cookies)
                 break
         except Exception as e:
             logging.info("获取房间状态失败：", e)
