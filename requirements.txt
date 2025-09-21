@@ -1,5 +1,6 @@
 aiohttp
 pillow
 pyyaml
-requests
 qrcode
+requests
+playwright[chromium]

@@ -22,11 +22,70 @@ def get_live_status(room_id, cookies):
     j = r.json()
     return j["data"]["live_status"]
 
+def monitor_intimacy(room_id, cookies):
+    """
+    用无头浏览器打开直播间，实时监控粉丝牌亲密度。
+    每隔60秒检查一次DOM，如果亲密度变化，就写日志。
+    """
+    def run():
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+
+            # 写入 cookies
+            cookie_list = []
+            for k, v in cookies.items():
+                cookie_list.append({
+                    "name": k,
+                    "value": v,
+                    "domain": ".bilibili.com",
+                    "path": "/",
+                    "httpOnly": False,
+                    "secure": True,
+                    "sameSite": "Lax"
+                })
+            context.add_cookies(cookie_list)
+
+            page = context.new_page()
+            page.goto(f"https://live.bilibili.com/{room_id}")
+
+            last_value = None
+            try:
+                while True:
+                    time.sleep(60)  # 每分钟检查一次
+
+                    try:
+                        # 查找粉丝牌亲密度的元素
+                        el_name = page.query_selector(".fans-medal-content")
+                        el_level = page.query_selector(".fans-medal-level-font")
+                        el_intimacy = page.query_selector(".dp-i-block.t-over-hidden.t-no-wrap")
+
+                        if el_name and el_level and el_intimacy:
+                            name = el_name.inner_text().strip()
+                            level = el_level.inner_text().strip()
+                            intimacy = el_intimacy.inner_text().strip()
+
+                            if intimacy != last_value:
+                                logging.info(f"[房间 {room_id}] [{name} Lv{level}] 亲密度变化: {last_value} → {intimacy}")
+                                last_value = intimacy
+                        else:
+                            logging.warning(f"[房间 {room_id}] 未找到粉丝牌或亲密度元素")
+
+                    except Exception as e:
+                        logging.error(f"[房间 {room_id}] 获取亲密度失败: {e}")
+                        continue
+
+            finally:
+                browser.close()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+
 def start_live_watch(room_id, cookies):
     """
     开播后启动无头浏览器观看，直到下播。
-    期间每分钟统计一次观看时长，但日志每10分钟输出一次，
-    并在下播时输出最终总结。
+    期间不再计算亲密度，而是仅保持浏览器运行，发送弹幕。
     """
     def run():
         with sync_playwright() as p:
@@ -50,33 +109,17 @@ def start_live_watch(room_id, cookies):
             page = context.new_page()
             page.goto(f"https://live.bilibili.com/{room_id}")
 
-            watch_minutes = 0
+            # 这里移除了原先的亲密度计算，只保持页面在后台跑
             try:
                 while True:
-                    time.sleep(60)   # 每分钟循环一次
-                    watch_minutes += 1
-                    intimacy = min((watch_minutes // 5) * 6, 30)  # 每5分钟+6, 上限30
-
-                    # ✅ 日志每10分钟输出一次
-                    if watch_minutes % 10 == 0:
-                        logging.info(f"已观看 {watch_minutes} 分钟，亲密度≈ {intimacy}")
-
-                    # 检查是否下播
-                    try:
-                        status = get_live_status(room_id, cookies)
-                        if status != 1:
-                            # 下播时输出最终总结
-                            final_intimacy = min((watch_minutes // 5) * 6, 30)
-                            logging.info(f"检测到下播，结束观看任务。"
-                                         f"总共观看 {watch_minutes} 分钟，亲密度≈ {final_intimacy}")
-                            break
-                    except Exception as e:
-                        logging.error(f"检测下播状态失败: {e}")
-                        continue
+                    time.sleep(60)  # 保持直播页面运行
+                    status = get_live_status(room_id, cookies)
+                    if status != 1:
+                        logging.info("检测到下播，结束观看任务。")
+                        break
             finally:
                 browser.close()
 
-    # 后台线程运行，不阻塞主逻辑
     t = threading.Thread(target=run, daemon=True)
     t.start()
 
@@ -148,7 +191,7 @@ logging.basicConfig(
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cookies',type=str,default='./cookies.json')
-    parser.add_argument('-r','--rid',type=str,default='14709735')
+    parser.add_argument('-r','--rid',type=str,default='14709735')  # 默认房间号
     parser.add_argument('-t','--txt',type=str,default='./text.txt')
     parser.add_argument('-i','--interval',type=float,default=15)
     parser.add_argument('--mode',choices=['auto','shuoshu','dulunche'],default='auto')
@@ -166,12 +209,13 @@ if __name__ == '__main__':
     login_info = bapi.get_user_info(args.rid)
 
     logging.info("等待直播间开播...")
+
     while True:
         try:
-            # ✅ 这里把 cookies 传进去
             if get_live_status(args.rid, cookies) == 1:
                 logging.info("直播已开播，开始发送弹幕")
-                start_live_watch(args.rid, cookies)
+                # 启动亲密度监控
+                monitor_intimacy(args.rid, cookies)
                 break
         except Exception as e:
             logging.info("获取房间状态失败：", e)
