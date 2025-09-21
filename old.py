@@ -180,7 +180,7 @@ if __name__ == '__main__':
                 bapi.send_danmu(args.rid, txt)
                 dm_cnt += 1
                 sent_since_check += 1
-                logging.info(f"已发送弹幕 {dm_cnt} 条: {txt}")
+                print(f"已发送弹幕 {dm_cnt} 条: {txt}")  
                 time.sleep(args.interval)
             except Exception as e:
                 logging.error(f"发送失败: {e}")
